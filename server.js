@@ -41,7 +41,7 @@ const optinRateLimiter = rateLimit({
 });
 
 // Log whether the user is opted in or out
-app.post('/optin_status', /*optinRateLimiter,*/ async (req, res) => {
+app.post('/optin_status', optinRateLimiter, async (req, res) => {
 
   // Get opt in status from request body
   const { optInStatus } = req.body;
