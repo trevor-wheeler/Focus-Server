@@ -2,6 +2,7 @@ import express from 'express';
 import rateLimit from 'express-rate-limit';
 import cors from 'cors';
 import { google } from 'googleapis';
+import * as cheerio from 'cheerio';
 
 // Create server
 const app = express();
@@ -69,6 +70,36 @@ app.post('/optin_status', optinRateLimiter, async (req, res) => {
   } catch (err) {
     // If unsuccessful return 500 code and error message
     return res.status(500).json({ error: err.message });
+  }
+});
+
+app.get('/user_count', async (req, res) => {
+  try {
+    const response = await fetch('https://chromewebstore.google.com/detail/focus-short-form-content/bbobcnmcegmkheaimcepkmcmnaaomagn');
+
+    if (!response.ok) {
+      return res.status(response.status).json({ error: 'Failed to fetch Chrome Web Store page' });
+    }
+
+    const body = await response.text();
+    const $ = cheerio.load(body);
+
+    // Select the first element with the class .F9iKBc and get its text content
+    const fullText = $('.F9iKBc').text().trim();
+    
+    // Match the number with optional commas (e.g., 1,543)
+    const userCountMatch = fullText.match(/[\d,]+/); // This will match numbers with commas
+
+    if (userCountMatch) {
+      // Remove commas and return the number as a plain integer
+      const userCount = userCountMatch[0].replace(/,/g, ''); // Remove commas
+      res.status(200).json({ userCount }); // Return just the number
+    } else {
+      res.status(200).json({ userCount: "Not found" });
+    }
+  } catch (error) {
+    console.error('Scraping failed:', error);
+    res.status(500).json({ error: 'Internal Server Error' });
   }
 });
 
