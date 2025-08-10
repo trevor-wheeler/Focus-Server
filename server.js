@@ -2,6 +2,7 @@ import express from 'express';
 import rateLimit from 'express-rate-limit';
 import cors from 'cors';
 import { google } from 'googleapis';
+import puppeteer from 'puppeteer';
 import * as cheerio from 'cheerio';
 
 // Create server
@@ -73,33 +74,61 @@ app.post('/optin_status', optinRateLimiter, async (req, res) => {
   }
 });
 
-app.get('/user_count', async (req, res) => {
+let cachedUserCount = null;
+const CACHE_DURATION = 24 * 60 * 60 * 1000; // 24h in ms
+
+async function fetchUserCount() {
+  let browser;
   try {
-    const response = await fetch('https://chromewebstore.google.com/detail/focus-short-form-content/bbobcnmcegmkheaimcepkmcmnaaomagn');
+    // Chrome Web Store
+    const chromeResponse = await fetch(
+      'https://chromewebstore.google.com/detail/focus-short-form-content/bbobcnmcegmkheaimcepkmcmnaaomagn'
+    );
+    if (!chromeResponse.ok) throw new Error('Failed to fetch Chrome Web Store');
 
-    if (!response.ok) {
-      return res.status(response.status).json({ error: 'Failed to fetch Chrome Web Store page' });
-    }
+    let chromeHtml = await chromeResponse.text();
+    let $ = cheerio.load(chromeHtml);
+    let chromeText = $('.F9iKBc').text().trim();
+    const chromeMatch = chromeText.match(/[\d,]+/);
+    const chromeCount = chromeMatch ? parseInt(chromeMatch[0].replace(/,/g, ''), 10) : 0;
 
-    const body = await response.text();
-    const $ = cheerio.load(body);
+    // Microsoft Edge
+    browser = await puppeteer.launch({
+      headless: 'new',
+      args: ['--no-sandbox', '--disable-setuid-sandbox']
+    });
+    const page = await browser.newPage();
+    await page.goto(
+      'https://microsoftedge.microsoft.com/addons/detail/focus-remove-shorts-r/plicpnabmdpgenmhkajnkdicjdoddofg',
+      { waitUntil: 'networkidle2' }
+    );
 
-    // Select the first element with the class .F9iKBc and get its text content
-    const fullText = $('.F9iKBc').text().trim();
-    
-    // Match the number with optional commas (e.g., 1,543)
-    const userCountMatch = fullText.match(/[\d,]+/); // This will match numbers with commas
+    const edgeText = await page.$eval('#activeInstallText', el => el.innerText.trim());
+    const edgeMatch = edgeText.match(/[\d,]+/);
+    const edgeCount = edgeMatch ? parseInt(edgeMatch[0].replace(/,/g, ''), 10) : 0;
 
-    if (userCountMatch) {
-      // Remove commas and return the number as a plain integer
-      const userCount = userCountMatch[0].replace(/,/g, ''); // Remove commas
-      res.status(200).json({ userCount }); // Return just the number
-    } else {
-      res.status(200).json({ userCount: "Not found" });
-    }
-  } catch (error) {
-    console.error('Scraping failed:', error);
-    res.status(500).json({ error: 'Internal Server Error' });
+    await page.close();
+    await browser.close();
+
+    cachedUserCount = chromeCount + edgeCount;
+    console.log(`[UserCountUpdater] Updated count: ${cachedUserCount}`);
+  } catch (err) {
+    if (browser) await browser.close();
+    console.error('[UserCountUpdater] Error fetching count:', err);
+  }
+}
+
+// Update every 24 hours
+setInterval(fetchUserCount, CACHE_DURATION);
+
+// Fetch immediately on startup
+fetchUserCount();
+
+app.get('/user_count', (req, res) => {
+  if (cachedUserCount !== null) {
+    res.status(200).json({ userCount: cachedUserCount });
+  } else {
+    res.status(503).json({ error: 'User count not yet available' });
   }
 });
 
