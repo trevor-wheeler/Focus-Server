@@ -92,6 +92,21 @@ async function fetchUserCount() {
     const chromeMatch = chromeText.match(/[\d,]+/);
     const chromeCount = chromeMatch ? parseInt(chromeMatch[0].replace(/,/g, ''), 10) : 0;
 
+    const firefoxResponse = await fetch(
+      'https://addons.mozilla.org/en-US/firefox/addon/focus-remove-shorts-reels/'
+    );
+    if (!firefoxResponse.ok) throw new Error('Failed to fetch Firefox Store');
+
+    let firefoxHtml = await firefoxResponse.text();
+    let $$ = cheerio.load(firefoxHtml);
+    let firefoxText = $$('.Badge-content')
+      .filter((i, el) => $$(el).text().includes("Users"))
+      .first()
+      .text()
+      .trim();
+    const firefoxMatch = firefoxText.match(/[\d,]+/);
+    const firefoxCount = firefoxMatch ? parseInt(firefoxMatch[0].replace(/,/g, ''), 10) : 0;
+
     // Microsoft Edge
     browser = await puppeteer.launch({
       headless: 'new',
@@ -110,7 +125,7 @@ async function fetchUserCount() {
     await page.close();
     await browser.close();
 
-    cachedUserCount = chromeCount + edgeCount;
+    cachedUserCount = chromeCount + edgeCount + firefoxCount;
     console.log(`[UserCountUpdater] Updated count: ${cachedUserCount}`);
   } catch (err) {
     if (browser) await browser.close();
